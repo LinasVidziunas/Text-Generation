@@ -165,7 +165,7 @@ class FNetDecoder(layers.Layer):
         self.supports_masking = True
 
     def get_config(self):
-        return {"embed_dim": self.embed_dim, "latnet_dim": self.latent_dim,
+        return {"embed_dim": self.embed_dim, "latent_dim": self.latent_dim,
            "num_heads": self.num_heads}
 
     def call(self, inputs, encoder_outputs, mask=None):
@@ -218,7 +218,9 @@ fnet = create_model()
 fnet.compile(tf.keras.optimizers.Adam(), keras.losses.SparseCategoricalCrossentropy(), metrics=["accuracy"])
 
 try:
-    tf.keras.models.load_model("fnet.h5")
+    tf.keras.models.load_model("fnet.h5", custom_objects={"PositionalEmbedding": PositionalEmbedding,
+                                                          "FNetEncoder": FNetEncoder,
+                                                          "FNetDecoder":FNetDecoder})
 except IOError:
     fnet.fit(train_dataset, epochs=1, validation_data=val_dataset)
     fnet.save('fnet.h5')
