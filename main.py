@@ -1,4 +1,6 @@
+import pickle
 import tensorflow as tf
+import numpy as np
 
 import keras
 from keras import layers
@@ -54,7 +56,7 @@ def load_conversations():
 
 questions, answers = load_conversations()
 
-# Splitting ttraining and validation sets
+# Splitting training and validation sets
 
 train_dataset = tf.data.Dataset.from_tensor_slices((questions[:40000], answers[:40000]))
 val_dataset = tf.data.Dataset.from_tensor_slices((questions[40000:], answers[40000:]))
@@ -214,15 +216,23 @@ def create_model():
     fnet = keras.Model([encoder_inputs, decoder_inputs], decoder_outputs, name="fnet")
     return fnet
 
+
 fnet = create_model()
 fnet.compile(tf.keras.optimizers.Adam(), keras.losses.SparseCategoricalCrossentropy(), metrics=["accuracy"])
 
 try:
-    tf.keras.models.load_model("fnet.h5", custom_objects={"PositionalEmbedding": PositionalEmbedding,
+    fnet = tf.keras.models.load_model("fnet.h5", custom_objects={"PositionalEmbedding": PositionalEmbedding,
                                                           "FNetEncoder": FNetEncoder,
                                                           "FNetDecoder":FNetDecoder})
+
+    vectorizer_data = pickle.load(open("vectorizer.save", "rb"))
+    vectorizer.set_weights(vectorizer_data['weights'])
+    vectorizer.from_config(vectorizer_data['config'])
 except IOError:
     fnet.fit(train_dataset, epochs=1, validation_data=val_dataset)
+    pickle.dump({'config': vectorizer.get_config(),
+                 'weights': vectorizer.get_weights()},
+                open("vectorizer.save", "wb"))
     fnet.save('fnet.h5')
 
 VOCAB = vectorizer.get_vocabulary()
