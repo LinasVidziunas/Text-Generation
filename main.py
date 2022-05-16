@@ -29,7 +29,7 @@ path_to_movie_lines = path.join(path_to_dataset, "movie_lines.txt")
 path_to_movie_conversations = path.join(path_to_dataset, "movie_conversations.txt")
 
 def load_conversations():
-    """Helper function for loading the conversation splits"""
+   """Helper function for loading the conversation splits"""
     id2line = {}
     with open(path_to_movie_lines, errors="ignore") as file:
         lines = file.readlines()
@@ -311,4 +311,5 @@ def decode_sentence(input_sentence):
     return decoded_sentence
 
 
-decode_sentence("Do you want to build a wall?")
+for i in ["Hello", "Can you introduce yourself?", "What's your name?", "Do you want to build a wall?", "What do you think about Joe Biden?"]:
+   print(f"Linas: {i} \t\t Trump: {decode_sentence(i)}")
