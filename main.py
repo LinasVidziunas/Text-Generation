@@ -1,30 +1,30 @@
 import pickle
 import tensorflow as tf
 import numpy as np
-
+import csv
 import keras
 from keras import layers
-
 from os import path
 import re
 
 # Defining hyperparameters
 
-VOCAB_SIZE = 8192
-MAX_SAMPLES = 50000
-BUFFER_SIZE = 20000
-MAX_LENGTH = 40
-EMBED_DIM = 256
-LATENT_DIM = 512
-NUM_HEADS = 8
+VOCAB_SIZE = 8192*2
+MAX_SAMPLES = 50000*2
+BUFFER_SIZE = 20000*2
+MAX_LENGTH = 40*2
+EMBED_DIM = 256*2
+LATENT_DIM = 512*2
+NUM_HEADS = 8*2
 BATCH_SIZE = 64
 
-path_to_zip = tf.keras.utils.get_file(
-    "cornell_movie_dialog.zip",
-    origin="http://www.cs.cornell.edu/~cristian/data/cornell_movie_dialogs_corpus.zip",
-    extract=True)
+# path_to_zip = tf.keras.utils.get_file(
+#     "data/cornell_movie_dialog.zip",
+#     origin="http://www.cs.cornell.edu/~cristian/data/cornell_movie_dialogs_corpus.zip",
+#     extract=True)
 
-path_to_dataset = path.join(path.dirname(path_to_zip), "cornell movie-dialogs corpus")
+# path_to_dataset = path.join(path.dirname(path_to_zip), "data/cornell movie-dialogs corpus")
+path_to_dataset = "data/cornell movie-dialogs corpus"
 path_to_movie_lines = path.join(path_to_dataset, "movie_lines.txt")
 path_to_movie_conversations = path.join(path_to_dataset, "movie_conversations.txt")
 
@@ -54,12 +54,36 @@ def load_conversations():
                 return inputs, outputs
     return inputs, outputs
 
+def read_Trump(path_to_csv_file):
+    with open(path_to_csv_file, 'r', errors="ignore") as file:
+        csvreader = csv.reader(file)
+        _ = next(csvreader) # Header
+
+        questions, trump_line = [], []
+
+        rows = []
+        for row in csvreader:
+            if "Trump" in str(row[0]):
+                questions.append(rows[-1][2])
+                trump_line.append(row[2])
+                
+            rows.append(row)
+            
+    return questions, trump_line
+    
 questions, answers = load_conversations()
+q2, a2 = read_Trump("data/us_election_2020_2nd_presidential_debate.csv")
+q3, a3 = read_Trump("data/us_election_2020_1st_presidential_debate.csv")
+q1, a1 = read_Trump("data/us_election_2020_trump_town_hall.csv")
+trump_questions = q1 + q2 + q3
+trump_answers = a1 + a2 + a3
 
 # Splitting training and validation sets
 
 train_dataset = tf.data.Dataset.from_tensor_slices((questions[:40000], answers[:40000]))
 val_dataset = tf.data.Dataset.from_tensor_slices((questions[40000:], answers[40000:]))
+
+trump_dataset = tf.data.Dataset.from_tensor_slices((trump_questions, trump_answers))
 
 def preprocess_text(sentence):
     sentence = tf.strings.lower(sentence)
@@ -93,9 +117,11 @@ def vectorize_text(inputs, outputs):
 
 train_dataset = train_dataset.map(vectorize_text, num_parallel_calls=tf.data.AUTOTUNE)
 val_dataset = val_dataset.map(vectorize_text, num_parallel_calls=tf.data.AUTOTUNE)
+trump_dataset = trump_dataset.map(vectorize_text, num_parallel_calls=tf.data.AUTOTUNE)
 
 train_dataset = train_dataset.cache().shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 val_dataset = val_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+trump_dataset = trump_dataset.cache().shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
 class FNetEncoder(layers.Layer):
     def __init__(self, embed_dim, dense_dim, **kwargs):
@@ -229,13 +255,32 @@ try:
     vectorizer.set_weights(vectorizer_data['weights'])
     vectorizer.from_config(vectorizer_data['config'])
 except IOError:
-    fnet.fit(train_dataset, epochs=1, validation_data=val_dataset)
+    fnet.fit(train_dataset, epochs=50, validation_data=val_dataset)
     pickle.dump({'config': vectorizer.get_config(),
                  'weights': vectorizer.get_weights()},
                 open("vectorizer.save", "wb"))
     fnet.save('fnet.h5')
 
 VOCAB = vectorizer.get_vocabulary()
+
+trump = create_model()
+trump.compile(tf.keras.optimizers.Adam(learning_rate=5e-5), keras.losses.SparseCategoricalCrossentropy(), metrics=["accuracy"])
+trump.set_weights(fnet.get_weights())
+
+try:
+    trump = tf.keras.models.load_model("trump.h5", custom_objects={"PositionalEmbedding": PositionalEmbedding,
+                                                          "FNetEncoder": FNetEncoder,
+                                                          "FNetDecoder":FNetDecoder})
+
+    vectorizer_data = pickle.load(open("trump_vectorizer.save", "rb"))
+    vectorizer.set_weights(vectorizer_data['weights'])
+    vectorizer.from_config(vectorizer_data['config'])
+except IOError:
+    trump.fit(trump_dataset, epochs=100)
+    pickle.dump({'config': vectorizer.get_config(),
+                 'weights': vectorizer.get_weights()},
+                open("trump_vectorizer.save", "wb"))
+    trump.save('trump.h5')
 
 def decode_sentence(input_sentence):
     # Mapping the input sentence to tokens and adding start and end tokens
@@ -247,7 +292,7 @@ def decode_sentence(input_sentence):
 
     for i in range(MAX_LENGTH):
         # Get the predictions
-        predictions = fnet.predict(
+        predictions = trump.predict(
             {
                 "encoder_inputs": tf.expand_dims(tokenized_input_sentence, 0),
                 "decoder_inputs": tf.expand_dims(tf.pad(
@@ -264,5 +309,6 @@ def decode_sentence(input_sentence):
             [tokenized_target_sentence, [sampled_token_index]], 0)
 
     return decoded_sentence
+
 
 decode_sentence("Do you want to build a wall?")
